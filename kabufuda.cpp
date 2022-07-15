@@ -1,3 +1,24 @@
+/*
+Copyright (c) 2022 Andreas Weis (der_ghulbus@ghulbus-inc.de)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 
 #include <algorithm>
 #include <array>
@@ -28,14 +49,12 @@ constexpr inline void hash_combine(std::size_t& seed, const T& v) noexcept
 }
 }
 
+/** Cards are of one of the ten suits 0-9.
+ */
 class Card {
     int8_t c;
 
 public:
-    Card()
-        :c(-1)
-    {}
-
     explicit Card(int8_t card)
         :c(card)
     {
@@ -50,8 +69,6 @@ public:
     friend bool operator!=(Card const&, Card const&) = default;
 };
 
-inline Card const empty = Card();
-
 namespace std
 {
 template<> struct hash<Card>
@@ -63,10 +80,6 @@ template<> struct hash<Card>
         return h;
     }
 };
-}
-
-bool cardIsEmpty(Card const& c) {
-    return c == empty;
 }
 
 template<>
@@ -83,7 +96,13 @@ struct fmt::formatter<Card>
     }
 };
 
-
+/** A stack of cards on the board.
+ *
+ * Each consists of an arbitrary number of cards stacked on top of each other.
+ * Only the top cards of matching suit are accessible.
+ * If a stack consists only of the four cards making up a suit, it can be collapsed.
+ * Once collapsed, the stack can not be changed anymore.
+ */
 class CardStack {
     std::vector<Card> stack;
 
@@ -94,7 +113,6 @@ public:
     CardStack(std::initializer_list<Card>&& cards)
         :stack(cards)
     {
-        assert(std::ranges::none_of(cards, cardIsEmpty));
     }
 
     Card const& getTop() const
@@ -155,8 +173,14 @@ public:
     friend bool operator!=(CardStack const&, CardStack const&) noexcept = default;
 };
 
+/** A swap field (free cell) on the top of the playing board.
+ *
+ * A swap field can hold a single card, once it has been unlocked.
+ * Alternativaly it can hold a stack of four cards of the same suit,
+ * which will collapse the field and prevent any future changes to it.
+ */
 class SwapField {
-    Card card;
+    std::optional<Card> card;
     enum FieldState {
         Locked,
         Free,
@@ -174,30 +198,36 @@ public:
         state = FieldState::Free;
     }
 
-    bool isLocked() const {
+    bool isLocked() const
+    {
         return state == FieldState::Locked;
     }
 
-    bool isFree() const {
+    bool isFree() const
+    {
         return state == FieldState::Free;
     }
 
-    bool isOccupied() const {
+    bool isOccupied() const
+    {
         return state == FieldState::Occupied;
     }
 
-    bool isCollapsed() const {
+    bool isCollapsed() const
+    {
         return state == FieldState::Collapsed;
     }
 
-    void pushCard(Card const& c) {
+    void pushCard(Card const& c)
+    {
         assert(state == FieldState::Free);
-        assert(card == empty);
+        assert(!card);
         card = c;
         state = FieldState::Occupied;
     }
 
-    void pushStack(Card const& c, int size) {
+    void pushStack(Card const& c, int size)
+    {
         if (size == 1) {
             pushCard(c);
         } else {
@@ -207,18 +237,21 @@ public:
         }
     }
 
-    Card getCard() const {
+    Card getCard() const
+    {
         assert((state == FieldState::Occupied) || (state == FieldState::Collapsed));
-        return card;
+        return *card;
     }
 
-    void popCard() {
+    void popCard()
+    {
         assert(state == FieldState::Occupied);
-        card = empty;
+        card = std::nullopt;
         state = FieldState::Free;
     }
 
-    int size() const {
+    int size() const
+    {
         switch (state) {
         case FieldState::Occupied: return 1;
         case FieldState::Collapsed: return 4;
@@ -234,12 +267,14 @@ template<>
 struct fmt::formatter<SwapField>
 {
     template<typename ParseContext>
-    constexpr auto parse(ParseContext& ctx) {
+    constexpr auto parse(ParseContext& ctx)
+    {
         return ctx.begin();
     }
 
     template<typename FormatContext>
-    auto format(SwapField const& s, FormatContext& ctx) {
+    auto format(SwapField const& s, FormatContext& ctx)
+    {
         if (s.isLocked()) {
             return fmt::format_to(ctx.out(), "<X>");
         } else if (s.isOccupied()) {
@@ -261,16 +296,19 @@ enum class Difficulty {
     Expert      // 1 free swap
 };
 
-
-int swapIndex(int i) {
-    assert((i >= -4) && (i < 0));
-    return (-i) - 1;
-}
-
+/** The playing board, consisting of 8 card stacks and 4 swap fields.
+ */
 class Board {
 public:
     std::array<SwapField, 4> swaps;
     std::array<CardStack, 8> field;
+
+private:
+    static int swapIndex(int i) {
+        assert((i >= -4) && (i < 0));
+        return (-i) - 1;
+    }
+public:
 
     Board(Difficulty d)
     {
@@ -300,18 +338,20 @@ public:
         }
     }
 
-    bool isValid() const {
+    bool isValid() const
+    {
+        // there should be 40 cards in total
         int const cards_total =
             std::accumulate(begin(field), end(field), 0, [](int acc, CardStack const& s) { return acc + static_cast<int>(s.size()); }) +
             std::accumulate(begin(swaps), end(swaps), 0, [](int acc, SwapField const& s) { return acc + s.size(); });
         if (cards_total != 40) { return false; }
-        
+
+        // for each of the 10 suits we should have exactly 4 cards on the board
         for (int i = 0; i < 10; ++i) {
             Card const c = Card{ static_cast<int8_t>(i) };
             int count = 0;
             for (auto const& s : field) {
                 count += static_cast<int>(std::ranges::count(s, c));
-                if (std::ranges::count(s, empty) != 0) { return false; }
             }
             for (auto const& s : swaps) {
                 if (s.isOccupied()) {
@@ -325,7 +365,9 @@ public:
         return true;
     }
 
-    bool hasWon() const {
+    bool hasWon() const
+    {
+        // we have won if there are no cards on the board that are not part of a collapsed field
         for (auto const& s : field) {
             if (!s.isEmpty() && !s.isCollapsed()) { return false; }
         }
@@ -335,26 +377,31 @@ public:
         return true;
     }
 
-    int getMaxSize() const {
+    int getMaxSize() const
+    {
         auto const size_compare = [](CardStack const& s1, CardStack const& s2) { return s1.size() < s2.size(); };
         return static_cast<int>(std::ranges::max(field, size_compare).size());
     }
 
-    CardStack& getField(int index) {
+    CardStack& getField(int index)
+    {
         assert((index >= 0) && (index < 8));
         return field[index];
     }
 
-    CardStack const& getField(int index) const {
+    CardStack const& getField(int index) const
+    {
         assert((index >= 0) && (index < 8));
         return field[index];
     }
 
-    SwapField& getSwap(int index) {
+    SwapField& getSwap(int index)
+    {
         return swaps[swapIndex(index)];
     }
 
-    SwapField const& getSwap(int index) const {
+    SwapField const& getSwap(int index) const
+    {
         return swaps[swapIndex(index)];
     }
 
@@ -393,7 +440,8 @@ template<>
 struct fmt::formatter<Board>
 {
     template<typename ParseContext>
-    constexpr auto parse(ParseContext& ctx) {
+    constexpr auto parse(ParseContext& ctx)
+    {
         return ctx.begin();
     }
 
@@ -427,7 +475,7 @@ struct fmt::formatter<Board>
 };
 
 
-std::optional<std::string> readInput(char const* filename)
+std::optional<std::string> readInputFile(char const* filename)
 {
     std::ifstream fin(filename);
     if (!fin) {
@@ -481,6 +529,11 @@ Board parseBoard(std::string_view input)
     return ret;
 }
 
+/** A move takes 1-4 cards from one place to another.
+ * The to and from fields contain an index to a card stack or swap field on the board.
+ * Card Stacks are indexed left-to-right by the positive indices [0..8).
+ * Swap Fields are indexed right-to-left by the negative indices [-4..-1]
+ */
 struct Move {
     int from;
     int to;
@@ -489,12 +542,14 @@ struct Move {
     friend bool operator==(Move const&, Move const&) noexcept = default;
 };
 
-bool isFieldIndex(int i) {
+bool isFieldIndex(int i)
+{
     assert((i >= -4) && (i < 8));
     return i >= 0;
 }
 
-bool isSwapIndex(int i) {
+bool isSwapIndex(int i)
+{
     assert((i >= -4) && (i < 8));
     return i < 0;
 }
@@ -503,17 +558,20 @@ template<>
 struct fmt::formatter<Move>
 {
     template<typename ParseContext>
-    constexpr auto parse(ParseContext& ctx) {
+    constexpr auto parse(ParseContext& ctx)
+    {
         return ctx.begin();
     }
 
     template<typename FormatContext>
-    auto format(Move const& m, FormatContext& ctx) {
+    auto format(Move const& m, FormatContext& ctx)
+    {
         return fmt::format_to(ctx.out(), "{} card{} from {} -> {}", m.size, (m.size == 1) ? "" : "s", m.from, m.to);
     }
 };
 
-bool moveIsValid(Move const& m) {
+bool moveIsValid(Move const& m)
+{
     auto const fieldIsValid = [](int i) { return ((i >= -4) && (i < 8)); };
     // can only move to and from valid fields
     if (!fieldIsValid(m.from) || !fieldIsValid(m.to)) { return false; }
@@ -569,16 +627,10 @@ bool moveIsValidForBoard(Board const& b, Move const& m)
     return true;
 }
 
-std::vector<Move> getAllValidMoves(Board const& b);
-
 Board executeMove(Board b, Move const& m)
 {
     assert(moveIsValid(m));
     assert(moveIsValidForBoard(b, m));
-
-    auto const moves = getAllValidMoves(b);
-    auto const it = std::ranges::find(moves, m);
-    assert(it != std::ranges::end(moves));
 
     Card const c = isSwapIndex(m.from) ? (b.getSwap(m.from).getCard()) : (b.getField(m.from).getTop());
     // remove from
@@ -645,12 +697,15 @@ std::vector<Move> getAllValidMoves(Board const& b)
         }
     }
 
+    // Arrange moves by putting moves with more cards first
+    // Without this, traversing the search space will take very long
     std::ranges::sort(ret, [](Move const& lhs, Move const& rhs) { return rhs.size < lhs.size; });
 
     return ret;
 }
 
-std::vector<Move> solve(Board b) {
+std::vector<Move> solve(Board b)
+{
     if (b.hasWon()) { return {}; }
     struct State {
         Board b;
@@ -661,8 +716,8 @@ std::vector<Move> solve(Board b) {
     std::vector<Move> move_stack;
     std::unordered_set<Board> boards;
 
+    // traverse the search space in a depth-first manner, favoring moves that move many cards at once
     stack.push_back(State{ .b = b, .valid_moves = getAllValidMoves(b) });
-    uint64_t skip_count = 0;
     while (!stack.empty()) {
         auto const& [board, moves, current_move] = stack.back();
         if (current_move == moves.size()) {
@@ -674,7 +729,7 @@ std::vector<Move> solve(Board b) {
             auto const& m = moves[current_move];
             ++stack.back().current_move;
             Board const new_board = executeMove(board, m);
-            if (boards.contains(new_board)) { ++skip_count; if (skip_count % (1 << 20) == 0) { fmt::print("Processed: {}, Skipped: {}, Depth: {}\n", boards.size(), skip_count, move_stack.size()); } continue; }
+            if (boards.contains(new_board)) { continue; }
             boards.insert(new_board);
             move_stack.push_back(m);
             if (new_board.hasWon()) { fmt::print("!!! We have a winner !!!\n"); break; }
@@ -694,7 +749,7 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    auto const in = readInput(argv[1]);
+    auto const in = readInputFile(argv[1]);
     if (!in) {
         fmt::print("Error reading input file {}\n", argv[1]);
         return 1;
@@ -723,7 +778,7 @@ int main(int argc, char* argv[])
         fmt::print("Board:\n{}\n", b2);
         for (auto const m : moves) {
             b2 = executeMove(b2, m);
-            fmt::print("Board:\n{}\n", b2);
+            fmt::print("Moving {}:\n{}\n", m, b2);
         }
     }
 
