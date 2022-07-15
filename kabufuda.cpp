@@ -10,6 +10,15 @@
 
 #include <fmt/format.h>
 
+#include <fstream>
+#include <regex>
+#include <string>
+#include <string_view>
+#include <sstream>
+#include <optional>
+
+#include <chrono>
+
 namespace {
 template <class T>
 constexpr inline void hash_combine(std::size_t& seed, const T& v) noexcept
@@ -417,6 +426,61 @@ struct fmt::formatter<Board>
     }
 };
 
+
+std::optional<std::string> readInput(char const* filename)
+{
+    std::ifstream fin(filename);
+    if (!fin) {
+        fmt::print(stderr, "Unable to open input file '{}' for reading.\n", filename);
+        return std::nullopt;
+    }
+
+    std::stringstream sstr;
+    sstr << fin.rdbuf();
+    if (!fin) {
+        fmt::print(stderr, "Unable to read input from file '{}'.\n", filename);
+        return std::nullopt;
+    }
+    return sstr.str();
+}
+
+Board parseBoard(std::string_view input)
+{
+    std::regex rx_difficulty(R"(^(Easy|Medium|Hard|Expert)$)");
+    std::match_results<std::string_view::iterator> smatch;
+    bool const has_difficulty = std::regex_search(begin(input), end(input), smatch, rx_difficulty);
+    
+    Difficulty const difficulty = [has_difficulty, &smatch]() {
+        if (has_difficulty) {
+            if (smatch[1] == "Easy") {
+                return Difficulty::Easy;
+            } else if(smatch[1] == "Medium") {
+                return Difficulty::Normal;
+            } else if(smatch[1] == "Hard") {
+                return Difficulty::Hard;
+            }
+        }
+        return Difficulty::Expert;
+    }();
+    Board ret{ difficulty };
+
+    std::regex rx_line(R"(^\s*(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s*?$)");
+    for (int iline = 0; iline < 5; ++iline) {
+        bool const does_match = std::regex_search(begin(input), end(input), smatch, rx_line);
+        if (!does_match) {
+            fmt::print(stderr, "Invalid board data.\n");
+            return {};
+        }
+        for (int i = 0; i < 8; ++i) {
+            auto const m = smatch[i + 1];
+            ret.field[i].pushCard(Card{ static_cast<std::int8_t>(std::stoi(m.str())) });
+        }
+        input.remove_prefix(input.length() - smatch.suffix().length());
+    }
+
+    return ret;
+}
+
 struct Move {
     int from;
     int to;
@@ -621,172 +685,50 @@ std::vector<Move> solve(Board b) {
     return move_stack;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
     fmt::print("*** KABUFUDA SOLITAIRE ***\n");
 
-    Board b(Difficulty::Expert);
-    //*
-    b.field[0] = CardStack{ Card{ 8 }, Card{ 5 }, Card{ 1 }, Card{ 4 }, Card{ 9 } };
-    b.field[1] = CardStack{ Card{ 4 }, Card{ 3 }, Card{ 0 }, Card{ 9 }, Card{ 2 } };
-    b.field[2] = CardStack{ Card{ 0 }, Card{ 2 }, Card{ 0 }, Card{ 3 }, Card{ 2 } };
-    b.field[3] = CardStack{ Card{ 5 }, Card{ 7 }, Card{ 7 }, Card{ 1 }, Card{ 1 } };
-    b.field[4] = CardStack{ Card{ 5 }, Card{ 5 }, Card{ 3 }, Card{ 1 }, Card{ 7 } };
-    b.field[5] = CardStack{ Card{ 9 }, Card{ 8 }, Card{ 4 }, Card{ 6 }, Card{ 4 } };
-    b.field[6] = CardStack{ Card{ 6 }, Card{ 8 }, Card{ 8 }, Card{ 3 }, Card{ 6 } };
-    b.field[7] = CardStack{ Card{ 0 }, Card{ 6 }, Card{ 2 }, Card{ 9 }, Card{ 7 } };
-    //*/
+    if (argc != 2) {
+        fmt::print("\nUsage: {} <input_file.txt>\n", argv[0]);
+        return 0;
+    }
 
-    /*
-    1  2  3  4  7  8  7  8
-    1  2  3  4  9  0  7  8
-    1  2  3  4  9  0  7  8
-    9  0  5  6  3  1  6  5
-    9  0  5  6  4  2  6  5
-    */
+    auto const in = readInput(argv[1]);
+    if (!in) {
+        fmt::print("Error reading input file {}\n", argv[1]);
+        return 1;
+    }
+    Board const b = parseBoard(*in);
+    if (!b.isValid()) {
+        fmt::print("Input file {} does not contain a valid puzzle input.\n"
+                   "\nHere's what I got from that file:\n{}\n", argv[1], b);
+        return 1;
+    }
 
-    /*
-    b.field[0] = CardStack{ Card{ 1 }, Card{ 1 }, Card{ 1 }, Card{ 9 }, Card{ 9 } };
-    b.field[1] = CardStack{ Card{ 2 }, Card{ 2 }, Card{ 2 }, Card{ 0 }, Card{ 0 } };
-    b.field[2] = CardStack{ Card{ 3 }, Card{ 3 }, Card{ 3 }, Card{ 5 }, Card{ 5 } };
-    b.field[3] = CardStack{ Card{ 4 }, Card{ 4 }, Card{ 4 }, Card{ 6 }, Card{ 6 } };
-    b.field[4] = CardStack{ Card{ 7 }, Card{ 9 }, Card{ 9 }, Card{ 3 }, Card{ 4 } };
-    b.field[5] = CardStack{ Card{ 8 }, Card{ 0 }, Card{ 0 }, Card{ 1 }, Card{ 2 } };
-    b.field[6] = CardStack{ Card{ 7 }, Card{ 7 }, Card{ 7 }, Card{ 6 }, Card{ 6 } };
-    b.field[7] = CardStack{ Card{ 8 }, Card{ 8 }, Card{ 8 }, Card{ 5 }, Card{ 5 } };
-    */
+    fmt::print("Puzzle input:\n{}\n", b);
 
-    /*
-    assert(b.isValid());
-    fmt::print("Board:\n{}\n", b);
-    b = executeMove(b, Move{ .from = 4, .to = -2, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 4, .to = -1, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    
-    b = executeMove(b, Move{ .from = 5, .to = -4, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 5, .to = -3, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 4, .to = 0, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 5, .to = 1, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 7, .to = 2, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 6, .to = 3, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 5, .to = 7, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 4, .to = 6, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 2, .to = 4, .size = 4 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 3, .to = 5, .size = 4 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = -1, .to = 2, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    assert(!b.hasWon());
-
-    b = executeMove(b, Move{ .from = -2, .to = 3, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    assert(!b.hasWon());
-
-    b = executeMove(b, Move{ .from = 0, .to = -1, .size = 4 });
-    fmt::print("Board:\n{}\n", b);
-    assert(!b.hasWon());
-
-    b = executeMove(b, Move{ .from = 1, .to = -2, .size = 4 });
-    fmt::print("Board:\n{}\n", b);
-    assert(!b.hasWon());
-
-    b = executeMove(b, Move{ .from = -3, .to = 0, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    assert(!b.hasWon());
-
-    b = executeMove(b, Move{ .from = -4, .to = 1, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    fmt::print("Win: {}\n", b.hasWon() ? "Yes!" : "No. :(");
-    */
-
-    //*
+    auto const t0 = std::chrono::steady_clock::now();
     auto const moves = solve(b);
-    fmt::print("*** Winning Moves: ***\n");
-    for (auto const m : moves) {
-        fmt::print(" - {}\n", m);
-    }
-    Board b2 = b;
-    fmt::print("Board:\n{}\n", b2);
-    for (auto const m : moves) {
-        b2 = executeMove(b2, m);
+    auto const t1 = std::chrono::steady_clock::now();
+
+    if (moves.empty()) {
+        fmt::print("Could not find a solution. :(\n");
+    } else {
+        fmt::print("*** Winning Moves: ***\n");
+        for (auto const m : moves) {
+            fmt::print(" - {}\n", m);
+        }
+        Board b2 = b;
         fmt::print("Board:\n{}\n", b2);
+        for (auto const m : moves) {
+            b2 = executeMove(b2, m);
+            fmt::print("Board:\n{}\n", b2);
+        }
     }
-    //*/
 
-    /*
-    assert(b.isValid());
-    assert(b.field[0].getTopSize() == 1);
-    assert(b.field[3].getTopSize() == 2);
+    fmt::print("\nSolving the puzzle took {} ms.\n",
+               std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
 
-    fmt::print("Board:\n{}\n", b);
-    b = executeMove(b, Move{ .from = 1, .to = 2, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    
-    b = executeMove(b, Move{ .from = 0, .to = 1, .size = 1 });
-    b = executeMove(b, Move{ .from = 7, .to = 4, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    
-    b = executeMove(b, Move{ .from = 1, .to = 7, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 0, .to = -1, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 3, .to = 0, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 4, .to = 3, .size = 2 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = -1, .to = 5, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-    
-    b = executeMove(b, Move{ .from = 3, .to = -1, .size = 4 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 0, .to = 4, .size = 3 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 3, .to = 0, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 4, .to = 3, .size = 4 });
-    fmt::print("Board:\n{}\n", b);
-    
-    b = executeMove(b, Move{ .from = 4, .to = -2, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    b = executeMove(b, Move{ .from = 0, .to = 4, .size = 1 });
-    b = executeMove(b, Move{ .from = 0, .to = 4, .size = 1 });
-    fmt::print("Board:\n{}\n", b);
-
-    auto const ms = getAllValidMoves(b);
-
-    for (auto const m : ms) { fmt::print("Move {}\n", m); }
-
-    assert(b.isValid());
-    assert(!b.hasWon());
-    */
+    return 0;
 }

@@ -9,6 +9,8 @@ add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/permissive->)
 
 find_package(fmt REQUIRED)
 
-add_executable(kabufuda kabufuda.cpp)
-target_link_libraries(kabufuda PUBLIC fmt::fmt)
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT kabufuda)
+add_executable(kabufuda_solver kabufuda.cpp)
+target_link_libraries(kabufuda_solver PUBLIC fmt::fmt)
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT kabufuda_solver)
+
+install(TARGETS kabufuda_solver)
