@@ -38,6 +38,7 @@ public:
     }
 
     friend bool operator==(Card const&, Card const&) = default;
+    friend bool operator!=(Card const&, Card const&) = default;
 };
 
 inline Card const empty = Card();
@@ -140,6 +141,9 @@ public:
     auto begin() const { return std::cbegin(stack); }
     auto end() const { return std::cend(stack); }
     auto size() const { return stack.size(); }
+
+    friend bool operator==(CardStack const&, CardStack const&) noexcept = default;
+    friend bool operator!=(CardStack const&, CardStack const&) noexcept = default;
 };
 
 class SwapField {
@@ -212,6 +216,9 @@ public:
         default: return 0;
         }
     }
+
+    friend bool operator==(SwapField const&, SwapField const&) noexcept = default;
+    friend bool operator!=(SwapField const&, SwapField const&) noexcept = default;
 };
 
 template<>
@@ -311,7 +318,7 @@ public:
 
     bool hasWon() const {
         for (auto const& s : field) {
-            if (!s.isEmpty() || !s.isCollapsed()) { return false; }
+            if (!s.isEmpty() && !s.isCollapsed()) { return false; }
         }
         for (auto const& s : swaps) {
             if (s.isOccupied()) { return false; }
@@ -342,7 +349,8 @@ public:
         return swaps[swapIndex(index)];
     }
 
-    friend bool operator==(Board const&, Board const&) = default;
+    friend bool operator==(Board const&, Board const&) noexcept = default;
+    friend bool operator!=(Board const&, Board const&) noexcept = default;
 };
 
 namespace std
@@ -413,6 +421,8 @@ struct Move {
     int from;
     int to;
     int size;
+
+    friend bool operator==(Move const&, Move const&) noexcept = default;
 };
 
 bool isFieldIndex(int i) {
@@ -440,7 +450,7 @@ struct fmt::formatter<Move>
 };
 
 bool moveIsValid(Move const& m) {
-    auto const fieldIsValid = [](int i) { return ((i > -4) && (i < 8)); };
+    auto const fieldIsValid = [](int i) { return ((i >= -4) && (i < 8)); };
     // can only move to and from valid fields
     if (!fieldIsValid(m.from) || !fieldIsValid(m.to)) { return false; }
     // can move between 1 and 4 cards
@@ -495,10 +505,16 @@ bool moveIsValidForBoard(Board const& b, Move const& m)
     return true;
 }
 
+std::vector<Move> getAllValidMoves(Board const& b);
+
 Board executeMove(Board b, Move const& m)
 {
     assert(moveIsValid(m));
     assert(moveIsValidForBoard(b, m));
+
+    auto const moves = getAllValidMoves(b);
+    auto const it = std::ranges::find(moves, m);
+    assert(it != std::ranges::end(moves));
 
     Card const c = isSwapIndex(m.from) ? (b.getSwap(m.from).getCard()) : (b.getField(m.from).getTop());
     // remove from
@@ -538,6 +554,7 @@ std::vector<Move> getAllValidMoves(Board const& b)
             }
         }(i_from);
         if (max_count == 0) { /* no cards to move in from slot */ continue; }
+        assert((max_count >= 1) && (max_count <= 4));
         // get the from card
         Card const c = isSwapIndex(i_from) ? b.getSwap(i_from).getCard() : b.getField(i_from).getTop();
         // check for a matching to slot
@@ -563,14 +580,53 @@ std::vector<Move> getAllValidMoves(Board const& b)
             }
         }
     }
+
+    std::ranges::sort(ret, [](Move const& lhs, Move const& rhs) { return rhs.size < lhs.size; });
+
     return ret;
+}
+
+std::vector<Move> solve(Board b) {
+    if (b.hasWon()) { return {}; }
+    struct State {
+        Board b;
+        std::vector<Move> valid_moves;
+        std::size_t current_move = 0;
+    };
+    std::vector<State> stack;
+    std::vector<Move> move_stack;
+    std::unordered_set<Board> boards;
+
+    stack.push_back(State{ .b = b, .valid_moves = getAllValidMoves(b) });
+    uint64_t skip_count = 0;
+    while (!stack.empty()) {
+        auto const& [board, moves, current_move] = stack.back();
+        if (current_move == moves.size()) {
+            // no more moves at this level; backtrack
+            stack.pop_back();
+            move_stack.pop_back();
+            continue;
+        } else {
+            auto const& m = moves[current_move];
+            ++stack.back().current_move;
+            Board const new_board = executeMove(board, m);
+            if (boards.contains(new_board)) { ++skip_count; if (skip_count % (1 << 20) == 0) { fmt::print("Processed: {}, Skipped: {}, Depth: {}\n", boards.size(), skip_count, move_stack.size()); } continue; }
+            boards.insert(new_board);
+            move_stack.push_back(m);
+            if (new_board.hasWon()) { fmt::print("!!! We have a winner !!!\n"); break; }
+            stack.push_back(State{ .b = new_board, .valid_moves = getAllValidMoves(new_board) });
+        }
+    }
+
+    return move_stack;
 }
 
 int main()
 {
     fmt::print("*** KABUFUDA SOLITAIRE ***\n");
 
-    Board b;
+    Board b(Difficulty::Expert);
+    //*
     b.field[0] = CardStack{ Card{ 8 }, Card{ 5 }, Card{ 1 }, Card{ 4 }, Card{ 9 } };
     b.field[1] = CardStack{ Card{ 4 }, Card{ 3 }, Card{ 0 }, Card{ 9 }, Card{ 2 } };
     b.field[2] = CardStack{ Card{ 0 }, Card{ 2 }, Card{ 0 }, Card{ 3 }, Card{ 2 } };
@@ -579,7 +635,107 @@ int main()
     b.field[5] = CardStack{ Card{ 9 }, Card{ 8 }, Card{ 4 }, Card{ 6 }, Card{ 4 } };
     b.field[6] = CardStack{ Card{ 6 }, Card{ 8 }, Card{ 8 }, Card{ 3 }, Card{ 6 } };
     b.field[7] = CardStack{ Card{ 0 }, Card{ 6 }, Card{ 2 }, Card{ 9 }, Card{ 7 } };
+    //*/
 
+    /*
+    1  2  3  4  7  8  7  8
+    1  2  3  4  9  0  7  8
+    1  2  3  4  9  0  7  8
+    9  0  5  6  3  1  6  5
+    9  0  5  6  4  2  6  5
+    */
+
+    /*
+    b.field[0] = CardStack{ Card{ 1 }, Card{ 1 }, Card{ 1 }, Card{ 9 }, Card{ 9 } };
+    b.field[1] = CardStack{ Card{ 2 }, Card{ 2 }, Card{ 2 }, Card{ 0 }, Card{ 0 } };
+    b.field[2] = CardStack{ Card{ 3 }, Card{ 3 }, Card{ 3 }, Card{ 5 }, Card{ 5 } };
+    b.field[3] = CardStack{ Card{ 4 }, Card{ 4 }, Card{ 4 }, Card{ 6 }, Card{ 6 } };
+    b.field[4] = CardStack{ Card{ 7 }, Card{ 9 }, Card{ 9 }, Card{ 3 }, Card{ 4 } };
+    b.field[5] = CardStack{ Card{ 8 }, Card{ 0 }, Card{ 0 }, Card{ 1 }, Card{ 2 } };
+    b.field[6] = CardStack{ Card{ 7 }, Card{ 7 }, Card{ 7 }, Card{ 6 }, Card{ 6 } };
+    b.field[7] = CardStack{ Card{ 8 }, Card{ 8 }, Card{ 8 }, Card{ 5 }, Card{ 5 } };
+    */
+
+    /*
+    assert(b.isValid());
+    fmt::print("Board:\n{}\n", b);
+    b = executeMove(b, Move{ .from = 4, .to = -2, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 4, .to = -1, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+    
+    b = executeMove(b, Move{ .from = 5, .to = -4, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 5, .to = -3, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 4, .to = 0, .size = 2 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 5, .to = 1, .size = 2 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 7, .to = 2, .size = 2 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 6, .to = 3, .size = 2 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 5, .to = 7, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 4, .to = 6, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 2, .to = 4, .size = 4 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = 3, .to = 5, .size = 4 });
+    fmt::print("Board:\n{}\n", b);
+
+    b = executeMove(b, Move{ .from = -1, .to = 2, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+    assert(!b.hasWon());
+
+    b = executeMove(b, Move{ .from = -2, .to = 3, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+    assert(!b.hasWon());
+
+    b = executeMove(b, Move{ .from = 0, .to = -1, .size = 4 });
+    fmt::print("Board:\n{}\n", b);
+    assert(!b.hasWon());
+
+    b = executeMove(b, Move{ .from = 1, .to = -2, .size = 4 });
+    fmt::print("Board:\n{}\n", b);
+    assert(!b.hasWon());
+
+    b = executeMove(b, Move{ .from = -3, .to = 0, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+    assert(!b.hasWon());
+
+    b = executeMove(b, Move{ .from = -4, .to = 1, .size = 1 });
+    fmt::print("Board:\n{}\n", b);
+
+    fmt::print("Win: {}\n", b.hasWon() ? "Yes!" : "No. :(");
+    */
+
+    //*
+    auto const moves = solve(b);
+    fmt::print("*** Winning Moves: ***\n");
+    for (auto const m : moves) {
+        fmt::print(" - {}\n", m);
+    }
+    Board b2 = b;
+    fmt::print("Board:\n{}\n", b2);
+    for (auto const m : moves) {
+        b2 = executeMove(b2, m);
+        fmt::print("Board:\n{}\n", b2);
+    }
+    //*/
+
+    /*
     assert(b.isValid());
     assert(b.field[0].getTopSize() == 1);
     assert(b.field[3].getTopSize() == 2);
@@ -632,4 +788,5 @@ int main()
 
     assert(b.isValid());
     assert(!b.hasWon());
+    */
 }
