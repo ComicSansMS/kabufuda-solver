@@ -3,12 +3,21 @@
 #include <array>
 #include <cassert>
 #include <numeric>
+#include <ranges>
+#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
-#include <optional>
-#include <ranges>
-
 #include <fmt/format.h>
+
+namespace {
+template <class T>
+constexpr inline void hash_combine(std::size_t& seed, const T& v) noexcept
+{
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+}
 
 class Card {
     int8_t c;
@@ -31,7 +40,20 @@ public:
     friend bool operator==(Card const&, Card const&) = default;
 };
 
-inline Card empty = Card();
+inline Card const empty = Card();
+
+namespace std
+{
+template<> struct hash<Card>
+{
+    std::size_t operator()(Card const& c) const noexcept
+    {
+        std::size_t h = 0;
+        hash_combine(h, c);
+        return h;
+    }
+};
+}
 
 bool cardIsEmpty(Card const& c) {
     return c == empty;
@@ -319,7 +341,36 @@ public:
     SwapField const& getSwap(int index) const {
         return swaps[swapIndex(index)];
     }
+
+    friend bool operator==(Board const&, Board const&) = default;
 };
+
+namespace std
+{
+template<> struct hash<Board>
+{
+    std::size_t operator()(Board const& b) const noexcept
+    {
+        std::size_t h = 0;
+        for (auto const& s : b.field) {
+            hash_combine(h, std::accumulate(s.begin(), s.end(), std::size_t{ 0 },
+                                            [](std::size_t acc, Card const& c) { return acc * 10 + c; }));
+        }
+        for (auto const& s : b.swaps) {
+            if (s.isLocked()) {
+                hash_combine(h, 11111111);
+            } else if (s.isFree()) {
+                hash_combine(h, 0);
+            } else if (s.isOccupied()) {
+                hash_combine(h, 1000 * s.getCard());
+            } else if (s.isCollapsed()) {
+                hash_combine(h, -s.getCard());
+            }
+        }
+        return h;
+    }
+};
+}
 
 template<>
 struct fmt::formatter<Board>
@@ -364,6 +415,16 @@ struct Move {
     int size;
 };
 
+bool isFieldIndex(int i) {
+    assert((i >= -4) && (i < 8));
+    return i >= 0;
+}
+
+bool isSwapIndex(int i) {
+    assert((i >= -4) && (i < 8));
+    return i < 0;
+}
+
 template<>
 struct fmt::formatter<Move>
 {
@@ -387,11 +448,11 @@ bool moveIsValid(Move const& m) {
     // can not move in place
     if (m.from == m.to) { return false; }
     // can only move 1 card from swap
-    if (m.from < 0) { 
+    if (isSwapIndex(m.from)) {
         if (m.size != 1) { return false; }
     }
     // can only move 1 or 4 cards to swap
-    if (m.to < 0) {
+    if (isSwapIndex(m.to)) {
         if ((m.size != 1) && (m.size != 4)) { return false; }
     }
     return true;
@@ -401,7 +462,7 @@ bool moveIsValid(Move const& m) {
 bool moveIsValidForBoard(Board const& b, Move const& m)
 {
     
-    if (m.from < 0) {
+    if (isSwapIndex(m.from)) {
         // can move from swap only if occupied
         if (!b.getSwap(m.from).isOccupied()) { return false; }
         // cam move only single card from stack
@@ -411,10 +472,10 @@ bool moveIsValidForBoard(Board const& b, Move const& m)
         if (b.getField(m.from).size() < m.size) { return false; }
     }
 
-    Card const& from_card = (m.from >= 0) ?
+    Card const& from_card = isFieldIndex(m.from) ?
         b.getField(m.from).getTop() : b.getSwap(m.from).getCard();
     // target stack must be able to accept card
-    if (m.to >= 0) {
+    if (isFieldIndex(m.to)) {
         CardStack const& to_stack = b.field[m.to];
         // stack must either have a matching card at top or be empty
         if (!to_stack.isEmpty()) {
@@ -439,16 +500,16 @@ Board executeMove(Board b, Move const& m)
     assert(moveIsValid(m));
     assert(moveIsValidForBoard(b, m));
 
-    Card const c = (m.from < 0) ? (b.getSwap(m.from).getCard()) : (b.getField(m.from).getTop());
+    Card const c = isSwapIndex(m.from) ? (b.getSwap(m.from).getCard()) : (b.getField(m.from).getTop());
     // remove from
-    if (m.from < 0) {
+    if (isSwapIndex(m.from)) {
         assert(m.size == 1);
         b.getSwap(m.from).popCard();
     } else {
         b.getField(m.from).popCards(m.size);
     }
     // push to
-    if (m.to < 0) {
+    if (isSwapIndex(m.to)) {
         b.getSwap(m.to).pushStack(c, m.size);
     } else {
         CardStack& s = b.getField(m.to);
@@ -458,6 +519,51 @@ Board executeMove(Board b, Move const& m)
 
     assert(b.isValid());
     return b;
+}
+
+std::vector<Move> getAllValidMoves(Board const& b)
+{
+    std::vector<Move> ret;
+
+    for (int i_from = -4; i_from < 8; ++i_from) {
+        // are there cards in from slot?
+        auto const max_count = [&b](int idx) {
+            if (isSwapIndex(idx)) {
+                SwapField const& s = b.getSwap(idx);
+                return (s.isOccupied()) ? 1 : 0;
+            } else {
+                CardStack const& s = b.getField(idx);
+                if (s.isEmpty() || s.isCollapsed()) { return 0; }
+                return s.getTopSize();
+            }
+        }(i_from);
+        if (max_count == 0) { /* no cards to move in from slot */ continue; }
+        // get the from card
+        Card const c = isSwapIndex(i_from) ? b.getSwap(i_from).getCard() : b.getField(i_from).getTop();
+        // check for a matching to slot
+        for (int i_to = -4; i_to < 8; ++i_to) {
+            if (i_to == i_from) { continue; }
+            if (isSwapIndex(i_to)) {
+                // move to swap field
+                SwapField const& s = b.getSwap(i_to);
+                if (s.isFree()) {
+                    ret.push_back(Move{ .from = i_from, .to = i_to, .size = 1 });
+                    if (max_count == 4) {
+                        ret.push_back(Move{ .from = i_from, .to = i_to, .size = 4 });
+                    }
+                }
+            } else {
+                // move to swap card stack
+                CardStack const& s = b.getField(i_to);
+                if (s.isEmpty() || s.getTop() == c) {
+                    for (int i_count = 1; i_count <= max_count; ++i_count) {
+                        ret.push_back(Move{ .from = i_from, .to = i_to, .size = i_count });
+                    }
+                }
+            }
+        }
+    }
+    return ret;
 }
 
 int main()
@@ -481,11 +587,11 @@ int main()
     fmt::print("Board:\n{}\n", b);
     b = executeMove(b, Move{ .from = 1, .to = 2, .size = 1 });
     fmt::print("Board:\n{}\n", b);
-
+    
     b = executeMove(b, Move{ .from = 0, .to = 1, .size = 1 });
     b = executeMove(b, Move{ .from = 7, .to = 4, .size = 1 });
     fmt::print("Board:\n{}\n", b);
-
+    
     b = executeMove(b, Move{ .from = 1, .to = 7, .size = 2 });
     fmt::print("Board:\n{}\n", b);
 
@@ -500,7 +606,7 @@ int main()
 
     b = executeMove(b, Move{ .from = -1, .to = 5, .size = 1 });
     fmt::print("Board:\n{}\n", b);
-
+    
     b = executeMove(b, Move{ .from = 3, .to = -1, .size = 4 });
     fmt::print("Board:\n{}\n", b);
 
@@ -512,13 +618,17 @@ int main()
 
     b = executeMove(b, Move{ .from = 4, .to = 3, .size = 4 });
     fmt::print("Board:\n{}\n", b);
-
+    
     b = executeMove(b, Move{ .from = 4, .to = -2, .size = 1 });
     fmt::print("Board:\n{}\n", b);
 
     b = executeMove(b, Move{ .from = 0, .to = 4, .size = 1 });
     b = executeMove(b, Move{ .from = 0, .to = 4, .size = 1 });
     fmt::print("Board:\n{}\n", b);
+
+    auto const ms = getAllValidMoves(b);
+
+    for (auto const m : ms) { fmt::print("Move {}\n", m); }
 
     assert(b.isValid());
     assert(!b.hasWon());
