@@ -30,6 +30,7 @@ SOFTWARE.
 #include <vector>
 
 #include <fmt/format.h>
+#include <fmt/color.h>
 
 #include <fstream>
 #include <regex>
@@ -92,7 +93,22 @@ struct fmt::formatter<Card>
 
     template<typename FormatContext>
     auto format(Card const& c, FormatContext& ctx) {
-        return fmt::format_to(ctx.out(), "{}", static_cast<int>(c));
+        std::array<fmt::v8::rgb, 10> palette = {
+            fmt::rgb(0xfb, 0xef, 0xcc),
+            fmt::rgb(0xf9, 0xcc, 0xac),
+            fmt::rgb(0xf4, 0xa6, 0x88),
+            fmt::rgb(0xe0, 0x87, 0x6a),
+            fmt::rgb(0xff, 0xf2, 0xdf),
+            fmt::rgb(0xd9, 0xad, 0x7c),
+            fmt::rgb(0xa2, 0x83, 0x6e),
+            fmt::rgb(0x67, 0x4d, 0x3c),
+            fmt::rgb(0xa8, 0x8f, 0xac),
+            fmt::rgb(0x82, 0x81, 0x6d)
+        };
+
+
+        fmt::fg(fmt::color());
+        return fmt::format_to(ctx.out(), fmt::fg(palette[static_cast<int8_t>(c)]), "{}", static_cast<int>(c));
     }
 };
 
@@ -344,9 +360,10 @@ public:
         int const cards_total =
             std::accumulate(begin(field), end(field), 0, [](int acc, CardStack const& s) { return acc + static_cast<int>(s.size()); }) +
             std::accumulate(begin(swaps), end(swaps), 0, [](int acc, SwapField const& s) { return acc + s.size(); });
-        if (cards_total != 40) { return false; }
+        if (cards_total != 40) { fmt::print("Invalid card total. Expected: 40. Found: {}.\n", cards_total); return false; }
 
         // for each of the 10 suits we should have exactly 4 cards on the board
+        bool is_valid = true;
         for (int i = 0; i < 10; ++i) {
             Card const c = Card{ static_cast<int8_t>(i) };
             int count = 0;
@@ -360,9 +377,9 @@ public:
                     if (c == s.getCard()) { count += 4; }
                 }
             }
-            if (count != 4) { return false; }
+            if (count != 4) { fmt::print("Invalid count for suit {}. Expected: 4. Found: {}.\n", i, count); is_valid = false; }
         }
-        return true;
+        return is_valid;
     }
 
     bool hasWon() const
