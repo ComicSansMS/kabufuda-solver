@@ -494,7 +494,7 @@ std::optional<std::string> readInputFile(char const* filename)
 
 Board parseBoard(std::string_view input)
 {
-    std::regex rx_difficulty(R"(^(Easy|Medium|Hard|Expert)$)");
+    std::regex rx_difficulty(R"(^(Easy|Medium|Hard|Expert)$)", std::regex::multiline);
     std::match_results<std::string_view::iterator> smatch;
     bool const has_difficulty = std::regex_search(begin(input), end(input), smatch, rx_difficulty);
     
@@ -512,7 +512,7 @@ Board parseBoard(std::string_view input)
     }();
     Board ret{ difficulty };
 
-    std::regex rx_line(R"(^\s*(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s*?$)");
+    std::regex rx_line(R"(^\s*(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)\s*?$)", std::regex::multiline);
     for (int iline = 0; iline < 5; ++iline) {
         bool const does_match = std::regex_search(begin(input), end(input), smatch, rx_line);
         if (!does_match) {
