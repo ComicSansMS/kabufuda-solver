@@ -92,7 +92,7 @@ struct fmt::formatter<Card>
     }
 
     template<typename FormatContext>
-    auto format(Card const& c, FormatContext& ctx) {
+    auto format(Card const& c, FormatContext& ctx) const {
         std::array<fmt::rgb, 10> palette = {
             fmt::rgb(0xfb, 0xef, 0xcc),
             fmt::rgb(0xf9, 0xcc, 0xac),
@@ -289,7 +289,7 @@ struct fmt::formatter<SwapField>
     }
 
     template<typename FormatContext>
-    auto format(SwapField const& s, FormatContext& ctx)
+    auto format(SwapField const& s, FormatContext& ctx) const
     {
         if (s.isLocked()) {
             return fmt::format_to(ctx.out(), "<X>");
@@ -463,7 +463,7 @@ struct fmt::formatter<Board>
     }
 
     template<typename FormatContext>
-    auto format(Board const& b, FormatContext& ctx) {
+    auto format(Board const& b, FormatContext& ctx) const {
         // print swaps
         fmt::format_to(ctx.out(), "Swaps: ");
         for (auto const& s : b.swaps) {
@@ -581,7 +581,7 @@ struct fmt::formatter<Move>
     }
 
     template<typename FormatContext>
-    auto format(Move const& m, FormatContext& ctx)
+    auto format(Move const& m, FormatContext& ctx) const
     {
         return fmt::format_to(ctx.out(), "{} card{} from {} -> {}", m.size, (m.size == 1) ? "" : "s", m.from, m.to);
     }
