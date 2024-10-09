@@ -93,7 +93,7 @@ struct fmt::formatter<Card>
 
     template<typename FormatContext>
     auto format(Card const& c, FormatContext& ctx) {
-        std::array<fmt::v8::rgb, 10> palette = {
+        std::array<fmt::rgb, 10> palette = {
             fmt::rgb(0xfb, 0xef, 0xcc),
             fmt::rgb(0xf9, 0xcc, 0xac),
             fmt::rgb(0xf4, 0xa6, 0x88),
